@@ -6,23 +6,21 @@
  <title>Salesforce REST POC</title>
  <style>
  body { font: 16px system-ui, sans-serif; margin: 24px; }
- label, input, button { display: block; margin: 12px 0; }
- input { width: 100%; max-width: 700px; padding: 10px; }
  button { padding: 10px 18px; }
- pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #eee; 
-padding: 16px; }
+ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #eee; padding: 16px; }
+ table { border-collapse: collapse; width: 100%; max-width: 1200px; margin-top: 16px; }
+ th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+ th { background: #f3f3f3; }
+ .status { margin-bottom: 12px; }
  </style>
 </head>
 <body>
  <h1>Salesforce REST POC</h1>
  <p id="origin"></p>
  <p id="note"></p>
- <label for="token">Sandbox access token from Postman</label>
- <input id="token" type="password" autocomplete="off" spellcheck="false"
- placeholder="Paste access_token here">
- <button id="run" type="button">Run Salesforce query</button>
- <button id="token-request" type="button" style="margin-top: 8px;">Get access token with client_credentials</button>
- <pre id="result">No request sent yet.</pre>
+ <div class="status" id="status">Loading Salesforce user data...</div>
+ <button id="run" type="button">Refresh Salesforce users</button>
+ <div id="result"></div>
  <script>
  const SF_INSTANCE_URL =
    'https://sz-scout01--crmr18dev.sandbox.my.salesforce.com';
@@ -35,9 +33,8 @@ padding: 16px; }
  const CLIENT_SECRET =
    '7CBCF02876DD3453B8A415892BC0F358A60B25D16DD29D36CC634CA9D0E1E535';
 
- const tokenInput = document.getElementById('token');
  const runButton = document.getElementById('run');
- const tokenRequestButton = document.getElementById('token-request');
+ const status = document.getElementById('status');
  const result = document.getElementById('result');
 
  document.getElementById('origin').textContent =
@@ -48,28 +45,102 @@ padding: 16px; }
      'This page is running from file://. A Salesforce CORS failure is expected.';
  }
 
- function setBusy(isBusy, label = 'Run Salesforce query') {
+ function setBusy(isBusy) {
    runButton.disabled = isBusy;
-   runButton.textContent = isBusy ? 'Running...' : label;
-   tokenRequestButton.disabled = isBusy;
-   tokenRequestButton.textContent = isBusy ? 'Requesting token...' : 'Get access token with client_credentials';
+   runButton.textContent = isBusy ? 'Loading...' : 'Refresh Salesforce users';
  }
 
- async function runQueryWithToken(token) {
-   const cleanToken = token.trim().replace(/^Bearer\s+/i, '');
-
-   if (!cleanToken) {
-     result.textContent = 'Paste the access token first.';
+ function renderUsersTable(records) {
+   if (!Array.isArray(records) || records.length === 0) {
+     result.innerHTML = '<p>No users returned.</p>';
      return;
    }
 
-   const url = new URL('/services/data/v65.0/query', SF_INSTANCE_URL);
-   url.searchParams.set('q', SOQL);
+   const columns = ['Id', 'Name', 'Username', 'Email'];
 
-   setBusy(true);
-   result.textContent = `Calling ${url.origin}${url.pathname} ...`;
+   const rowsHtml = records
+     .map((record) => {
+       return `
+         <tr>
+           <td>${record.Id || ''}</td>
+           <td>${record.Name || ''}</td>
+           <td>${record.Username || ''}</td>
+           <td>${record.Email || ''}</td>
+         </tr>
+       `;
+     })
+     .join('');
+
+   result.innerHTML = `
+     <table>
+       <thead>
+         <tr>
+           ${columns.map((column) => `<th>${column}</th>`).join('')}
+         </tr>
+       </thead>
+       <tbody>
+         ${rowsHtml}
+       </tbody>
+     </table>
+   `;
+ }
+
+ async function fetchSalesforceToken() {
+   const body = new URLSearchParams({
+     grant_type: 'client_credentials',
+     client_id: CLIENT_ID,
+     client_secret: CLIENT_SECRET
+   });
+
+   const response = await fetch(SF_TOKEN_URL, {
+     method: 'POST',
+     mode: 'cors',
+     credentials: 'omit',
+     cache: 'no-store',
+     referrerPolicy: 'no-referrer',
+     headers: {
+       'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+       Accept: 'application/json'
+     },
+     body: body.toString()
+   });
+
+   const rawBody = await response.text();
+   let parsedBody = null;
 
    try {
+     parsedBody = JSON.parse(rawBody);
+   } catch (_) {
+     parsedBody = rawBody;
+   }
+
+   if (!response.ok) {
+     const detail = typeof parsedBody === 'object' && parsedBody && parsedBody.error
+       ? `${parsedBody.error}: ${parsedBody.error_description || ''}`
+       : rawBody;
+     throw new Error(detail || `Token request failed with HTTP ${response.status}`);
+   }
+
+   const token = parsedBody && parsedBody.access_token ? parsedBody.access_token : null;
+   if (!token) {
+     throw new Error('No access_token returned by Salesforce token endpoint.');
+   }
+
+   return token;
+ }
+
+ async function loadUsers() {
+   setBusy(true);
+   status.textContent = 'Requesting access token from Salesforce...';
+   result.innerHTML = '';
+
+   try {
+     const token = await fetchSalesforceToken();
+     status.textContent = 'Token received. Fetching User records...';
+
+     const url = new URL('/services/data/v65.0/query', SF_INSTANCE_URL);
+     url.searchParams.set('q', SOQL);
+
      const response = await fetch(url.toString(), {
        method: 'GET',
        mode: 'cors',
@@ -77,56 +148,9 @@ padding: 16px; }
        cache: 'no-store',
        referrerPolicy: 'no-referrer',
        headers: {
-         Authorization: `Bearer ${cleanToken}`,
+         Authorization: `Bearer ${token}`,
          Accept: 'application/json'
        }
-     });
-
-     const rawBody = await response.text();
-     let formattedBody = rawBody;
-
-     try {
-       formattedBody = JSON.stringify(JSON.parse(rawBody), null, 2);
-     } catch (_) {
-       // Keep the original response if it is not JSON.
-     }
-
-     result.textContent = `HTTP ${response.status} ${response.statusText}\n\n${formattedBody}`;
-
-     if (!response.ok) {
-       throw new Error(`Salesforce API returned ${response.status}`);
-     }
-   } catch (error) {
-     result.textContent =
-       `Fetch failed: ${error.message}\n\n` +
-       'Check the Salesforce token, instance URL, and browser CORS/Network errors.';
-   } finally {
-     setBusy(false);
-   }
- }
-
- async function fetchTokenViaClientCredentials() {
-   const body = new URLSearchParams({
-     grant_type: 'client_credentials',
-     client_id: CLIENT_ID,
-     client_secret: CLIENT_SECRET
-   });
-
-   setBusy(true, 'Requesting token...');
-   result.textContent = 'Requesting Salesforce access token via client_credentials...';
-
-   try {
-     const response = await fetch(SF_TOKEN_URL, {
-       method: 'POST',
-       mode: 'cors',
-       credentials: 'omit',
-       cache: 'no-store',
-       referrerPolicy: 'no-referrer',
-       headers: {
-         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-         Accept: 'application/json'
-       },
-       body: body.toString()
      });
 
      const rawBody = await response.text();
@@ -139,49 +163,25 @@ padding: 16px; }
      }
 
      if (!response.ok) {
-       const detail = typeof parsedBody === 'object' && parsedBody && parsedBody.error
-         ? `${parsedBody.error}: ${parsedBody.error_description || ''}`
+       const detail = typeof parsedBody === 'object' && parsedBody && parsedBody.message
+         ? parsedBody.message
          : rawBody;
-       throw new Error(detail || `Token request failed with HTTP ${response.status}`);
+       throw new Error(detail || `Query failed with HTTP ${response.status}`);
      }
 
-     const token = parsedBody && parsedBody.access_token
-       ? parsedBody.access_token
-       : null;
-
-     if (!token) {
-       throw new Error('No access_token returned by Salesforce token endpoint.');
-     }
-
-     tokenInput.value = token;
-     result.textContent = 'Salesforce token received. Running query automatically...';
-     await runQueryWithToken(token);
+     const records = parsedBody && Array.isArray(parsedBody.records) ? parsedBody.records : [];
+     renderUsersTable(records);
+     status.textContent = `Loaded ${records.length} User records successfully.`;
    } catch (error) {
-     result.textContent = `Token request failed: ${error.message}`;
+     status.textContent = `Error: ${error.message}`;
+     result.innerHTML = `<pre>${error.message}</pre>`;
    } finally {
      setBusy(false);
    }
  }
 
- runButton.addEventListener('click', async () => {
-   await runQueryWithToken(tokenInput.value);
- });
-
- tokenRequestButton.addEventListener('click', async () => {
-   await fetchTokenViaClientCredentials();
- });
-
- tokenInput.addEventListener('input', async () => {
-   if (tokenInput.value.trim()) {
-     await runQueryWithToken(tokenInput.value);
-   }
- });
-
- tokenInput.addEventListener('keydown', async (event) => {
-   if (event.key === 'Enter' && tokenInput.value.trim()) {
-     await runQueryWithToken(tokenInput.value);
-   }
- });
+ runButton.addEventListener('click', loadUsers);
+ window.addEventListener('DOMContentLoaded', loadUsers);
  </script>
 </body>
 </html>
