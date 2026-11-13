@@ -5,9 +5,115 @@
     <title>Salesforce Bridge</title>
   </head>
   <body>
+    <div style="font-family: Arial, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px;">
+      <h2>Salesforce Users</h2>
+      <p id="user-table-status" style="margin-bottom: 12px; color: #444;">Waiting for user data...</p>
+      <table id="user-table" border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%; background: #fff;">
+        <thead style="background: #f3f3f3;">
+          <tr>
+            <th style="text-align: left;">Name</th>
+            <th style="text-align: left;">Username</th>
+            <th style="text-align: left;">Email</th>
+          </tr>
+        </thead>
+        <tbody id="user-table-body"></tbody>
+      </table>
+    </div>
+
     <script>
       // Notify the plugin that the bridge is ready.
       window.parent.postMessage({ type: 'agentforce-bridge-ready' }, '*');
+
+      async function loadSalesforceUsersFromMessage(msg) {
+        const status = document.getElementById('user-table-status');
+        const token = msg.token || msg.access_token || msg.accessToken;
+        const instanceUrl = msg.instanceUrl || msg.instance_url || msg.instanceURL;
+
+        if (!token) {
+          if (status) status.textContent = 'Missing Salesforce access token.';
+          return;
+        }
+
+        if (!instanceUrl) {
+          if (status) status.textContent = 'Missing Salesforce instance URL.';
+          return;
+        }
+
+        const url = `${String(instanceUrl).replace(/\/+$/, '')}/services/data/v65.0/query?q=${encodeURIComponent('SELECT Id, Name, Username, Email FROM User LIMIT 100')}`;
+
+        try {
+          if (status) {
+            status.textContent = 'Loading Salesforce users...';
+          }
+
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+              'Content-Type': 'application/json'
+            },
+            credentials: 'omit'
+          });
+
+          const rawText = await response.text();
+          let data = null;
+
+          try {
+            data = rawText ? JSON.parse(rawText) : null;
+          } catch (error) {
+            data = rawText;
+          }
+
+          if (!response.ok) {
+            const message =
+              (data && (data.message || data.error_description || data.error)) ||
+              rawText ||
+              `Request failed with HTTP ${response.status}`;
+            throw new Error(message);
+          }
+
+          const records = data && Array.isArray(data.records) ? data.records : [];
+          renderUserTable(records);
+        } catch (error) {
+          console.error('[bridge] direct user load failed:', error);
+          if (status) {
+            status.textContent = 'Failed to load Salesforce users.';
+          }
+        }
+      }
+
+      function renderUserTable(records) {
+        const tableBody = document.getElementById('user-table-body');
+        const status = document.getElementById('user-table-status');
+
+        if (!tableBody || !status) return;
+
+        tableBody.innerHTML = '';
+
+        if (!Array.isArray(records) || records.length === 0) {
+          status.textContent = 'No users returned.';
+          return;
+        }
+
+        records.forEach((record) => {
+          const row = document.createElement('tr');
+          const nameCell = document.createElement('td');
+          const usernameCell = document.createElement('td');
+          const emailCell = document.createElement('td');
+
+          nameCell.textContent = record.Name || '—';
+          usernameCell.textContent = record.Username || '—';
+          emailCell.textContent = record.Email || '—';
+
+          row.appendChild(nameCell);
+          row.appendChild(usernameCell);
+          row.appendChild(emailCell);
+          tableBody.appendChild(row);
+        });
+
+        status.textContent = `Showing ${records.length} Salesforce users.`;
+      }
 
       function parseBody(value) {
         if (value === undefined || value === null) return value;
@@ -42,6 +148,11 @@
       window.addEventListener('message', async function (event) {
         const msg = event.data || {};
         console.log('[bridge] received message:', msg);
+
+        if (msg.type === 'agentforce-request') {
+          loadSalesforceUsersFromMessage(msg);
+        }
+
         if (msg.type !== 'agentforce-request') return;
 
         const requestId = msg.id;
@@ -131,6 +242,18 @@
           }
 
           console.log('[bridge] successful response payload:', parsedResponse);
+
+          const records = parsedResponse && Array.isArray(parsedResponse.records) ? parsedResponse.records : [];
+          if (records.length) {
+            const isUserQuery = /FROM\s+User\b/i.test(String(path || '')) || 
+              /FROM\s+User\b/i.test(String(msg.query || '')) ||
+              /FROM\s+User\b/i.test(String(msg.endpoint || ''));
+
+            if (isUserQuery) {
+              renderUserTable(records);
+            }
+          }
+
           sendResult(requestId, true, {
             status: response.status,
             statusText: response.statusText,
@@ -141,6 +264,7 @@
           sendResult(requestId, false, null, error);
         }
       });
+
     </script>
   </body>
 </html>
