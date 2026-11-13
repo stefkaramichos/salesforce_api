@@ -1,270 +1,433 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Salesforce Bridge</title>
-  </head>
-  <body>
-    <div style="font-family: Arial, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px;">
-      <h2>Salesforce Users</h2>
-      <p id="user-table-status" style="margin-bottom: 12px; color: #444;">Waiting for user data...</p>
-      <table id="user-table" border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%; background: #fff;">
-        <thead style="background: #f3f3f3;">
-          <tr>
-            <th style="text-align: left;">Name</th>
-            <th style="text-align: left;">Username</th>
-            <th style="text-align: left;">Email</th>
-          </tr>
-        </thead>
-        <tbody id="user-table-body"></tbody>
-      </table>
-    </div>
 
-    <script>
-      // Notify the plugin that the bridge is ready.
-      window.parent.postMessage({ type: 'agentforce-bridge-ready' }, '*');
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Salesforce REST POC</title>
 
-      async function loadSalesforceUsersFromMessage(msg) {
-        const status = document.getElementById('user-table-status');
-        const token = msg.token || msg.access_token || msg.accessToken;
-        const instanceUrl = msg.instanceUrl || msg.instance_url || msg.instanceURL;
+  <style>
+    :root {
+      --app-navy: #29335c;
+      --app-navy-soft: #4a587e;
+      --app-surface: #f5f7fb;
+      --app-panel: #ffffff;
+      --app-border: #dfe3ef;
+      --app-shadow: rgba(41, 51, 92, 0.08);
+      --app-muted: #5f6d8d;
+    }
 
-        if (!token) {
-          if (status) status.textContent = 'Missing Salesforce access token.';
-          return;
-        }
+    body {
+      margin: 24px;
+      font: 16px system-ui, -apple-system, BlinkMacSystemFont,
+        'Segoe UI', sans-serif;
+      background: var(--app-surface);
+      color: var(--app-navy);
+    }
 
-        if (!instanceUrl) {
-          if (status) status.textContent = 'Missing Salesforce instance URL.';
-          return;
-        }
+    h1 {
+      margin: 0 0 12px;
+      color: var(--app-navy);
+      font-size: 2rem;
+    }
 
-        const url = `${String(instanceUrl).replace(/\/+$/, '')}/services/data/v65.0/query?q=${encodeURIComponent('SELECT Id, Name, Username, Email FROM User LIMIT 100')}`;
+    p {
+      color: var(--app-muted);
+      margin: 8px 0;
+    }
 
-        try {
-          if (status) {
-            status.textContent = 'Loading Salesforce users...';
-          }
+    button {
+      padding: 10px 18px;
+      border: none;
+      border-radius: 8px;
+      background: var(--app-navy);
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 6px 16px var(--app-shadow);
+      transition: background 0.2s ease,
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+    }
 
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: 'application/json',
-              'Content-Type': 'application/json'
-            },
-            credentials: 'omit'
-          });
+    button:hover:not(:disabled) {
+      background: var(--app-navy-soft);
+      transform: translateY(-1px);
+    }
 
-          const rawText = await response.text();
-          let data = null;
+    button:disabled {
+      opacity: 0.7;
+      cursor: wait;
+      box-shadow: none;
+    }
 
-          try {
-            data = rawText ? JSON.parse(rawText) : null;
-          } catch (error) {
-            data = rawText;
-          }
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      background: #edf1f8;
+      border: 1px solid var(--app-border);
+      border-radius: 10px;
+      color: var(--app-navy);
+      padding: 16px;
+      margin-top: 16px;
+    }
 
-          if (!response.ok) {
-            const message =
-              (data && (data.message || data.error_description || data.error)) ||
-              rawText ||
-              `Request failed with HTTP ${response.status}`;
-            throw new Error(message);
-          }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      max-width: 1200px;
+      margin-top: 16px;
+      background: var(--app-panel);
+      border: 1px solid var(--app-border);
+      box-shadow: 0 8px 24px var(--app-shadow);
+    }
 
-          const records = data && Array.isArray(data.records) ? data.records : [];
-          renderUserTable(records);
-        } catch (error) {
-          console.error('[bridge] direct user load failed:', error);
-          if (status) {
-            status.textContent = 'Failed to load Salesforce users.';
-          }
-        }
+    th, td {
+      border: 1px solid var(--app-border);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #edf2ff;
+      color: var(--app-navy);
+      font-weight: 700;
+    }
+
+    td {
+      background: #fff;
+      color: var(--app-navy);
+    }
+
+    .status {
+      margin: 12px 0 16px;
+      font-weight: 600;
+      color: var(--app-navy);
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>Salesforce REST POC</h1>
+
+  <p id="origin"></p>
+  <p id="note"></p>
+
+  <div class="status" id="status">
+    Waiting for Salesforce connection...
+  </div>
+
+  <button id="run" type="button">
+    Refresh Salesforce users
+  </button>
+
+  <div id="result"></div>
+
+  <script>
+    // ============================================
+    // CONFIGURATION
+    // ============================================
+
+    const SF_INSTANCE_URL =
+      'https://sz-scout01--crmr18dev.sandbox.my.salesforce.com';
+
+    // Must be the actual origin of the trusted parent.
+    const TRUSTED_PARENT_ORIGIN =
+      'https://stefkaramichos.github.io/salesforce_api';
+
+    const SOQL =
+      'SELECT Id, Name, Username, Email FROM User LIMIT 100';
+
+    const API_VERSION = 'v65.0';
+
+    const TOKEN_TIMEOUT = 15000;
+
+    // ============================================
+    // ELEMENTS
+    // ============================================
+
+    const runButton = document.getElementById('run');
+    const status = document.getElementById('status');
+    const result = document.getElementById('result');
+
+    document.getElementById('origin').textContent =
+      `Page origin: ${window.location.origin}`;
+
+    // ============================================
+    // PAGE ENVIRONMENT
+    // ============================================
+
+    if (window.parent === window) {
+      document.getElementById('note').textContent =
+        'This page is not embedded in Pitcher. ' +
+        'A parent application is required to provide the token.';
+    } else {
+      document.getElementById('note').textContent =
+        'Page embedded. Waiting for Pitcher authentication.';
+    }
+
+    // ============================================
+    // UI HELPERS
+    // ============================================
+
+    function setBusy(isBusy) {
+      runButton.disabled = isBusy;
+
+      runButton.textContent = isBusy
+        ? 'Loading...'
+        : 'Refresh Salesforce users';
+    }
+
+    function showError(message) {
+      status.textContent = `Error: ${message}`;
+
+      result.replaceChildren();
+
+      const pre = document.createElement('pre');
+      pre.textContent = message;
+      result.appendChild(pre);
+    }
+
+    // ============================================
+    // RENDER USERS TABLE
+    // ============================================
+
+    function renderUsersTable(records) {
+      result.replaceChildren();
+
+      if (!Array.isArray(records) || records.length === 0) {
+        const p = document.createElement('p');
+        p.textContent = 'No users returned.';
+        result.appendChild(p);
+        return;
       }
 
-      function renderUserTable(records) {
-        const tableBody = document.getElementById('user-table-body');
-        const status = document.getElementById('user-table-status');
+      const columns = ['Id', 'Name', 'Username', 'Email'];
 
-        if (!tableBody || !status) return;
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const tbody = document.createElement('tbody');
 
-        tableBody.innerHTML = '';
+      const headerRow = document.createElement('tr');
 
-        if (!Array.isArray(records) || records.length === 0) {
-          status.textContent = 'No users returned.';
-          return;
-        }
-
-        records.forEach((record) => {
-          const row = document.createElement('tr');
-          const nameCell = document.createElement('td');
-          const usernameCell = document.createElement('td');
-          const emailCell = document.createElement('td');
-
-          nameCell.textContent = record.Name || '—';
-          usernameCell.textContent = record.Username || '—';
-          emailCell.textContent = record.Email || '—';
-
-          row.appendChild(nameCell);
-          row.appendChild(usernameCell);
-          row.appendChild(emailCell);
-          tableBody.appendChild(row);
-        });
-
-        status.textContent = `Showing ${records.length} Salesforce users.`;
-      }
-
-      function parseBody(value) {
-        if (value === undefined || value === null) return value;
-        if (typeof value === 'string') {
-          try {
-            return JSON.parse(value);
-          } catch (error) {
-            return value;
-          }
-        }
-        return value;
-      }
-
-      function buildTargetUrl(instanceUrl, path) {
-        if (!instanceUrl) return null;
-        const base = String(instanceUrl).replace(/\/+$/, '');
-        const incoming = String(path || '/');
-        if (/^https?:\/\//i.test(incoming)) return incoming;
-        return `${base}${incoming.startsWith('/') ? incoming : `/${incoming}`}`;
-      }
-
-      function sendResult(id, ok, payload, error) {
-        window.parent.postMessage({
-          type: 'agentforce-response',
-          id,
-          ok,
-          payload,
-          error: error ? (error.message || String(error)) : undefined
-        }, '*');
-      }
-
-      window.addEventListener('message', async function (event) {
-        const msg = event.data || {};
-        console.log('[bridge] received message:', msg);
-
-        if (msg.type === 'agentforce-request') {
-          loadSalesforceUsersFromMessage(msg);
-        }
-
-        if (msg.type !== 'agentforce-request') return;
-
-        const requestId = msg.id;
-        const method = (msg.method || 'GET').toUpperCase();
-        const token = msg.token || msg.access_token || msg.accessToken;
-        const instanceUrl = msg.instanceUrl || msg.instance_url || msg.instanceURL;
-        const path = msg.path || msg.endpoint || '/';
-        const body = parseBody(msg.body);
-        const headers = Object.assign({}, msg.headers || {});
-
-        console.log('[bridge] parsed values:', {
-          requestId,
-          method,
-          tokenLength: token ? token.length : 0,
-          instanceUrl,
-          path,
-          body,
-          headers
-        });
-
-        if (!token) {
-          console.error('[bridge] missing access token in message');
-          sendResult(requestId, false, null, new Error('Missing access token.'));
-          return;
-        }
-
-        if (!instanceUrl) {
-          console.error('[bridge] missing Salesforce instance URL in message');
-          sendResult(requestId, false, null, new Error('Missing Salesforce instance URL.'));
-          return;
-        }
-
-        const targetUrl = buildTargetUrl(instanceUrl, path);
-        console.log('[bridge] targetUrl:', targetUrl);
-
-        if (!targetUrl) {
-          console.error('[bridge] invalid target URL built from instanceUrl + path');
-          sendResult(requestId, false, null, new Error('Invalid Salesforce target URL.'));
-          return;
-        }
-
-        try {
-          const requestHeaders = {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/json',
-            ...headers
-          };
-
-          let payload = body;
-          if (payload !== undefined && payload !== null && typeof payload !== 'string' && !(payload instanceof FormData)) {
-            requestHeaders['Content-Type'] = requestHeaders['Content-Type'] || 'application/json';
-            payload = JSON.stringify(payload);
-          }
-
-          console.log('[bridge] sending request:', {
-            url: targetUrl,
-            method,
-            headers: requestHeaders,
-            payload
-          });
-
-          const response = await fetch(targetUrl, {
-            method,
-            headers: requestHeaders,
-            body: payload !== undefined && payload !== null && method !== 'GET' && method !== 'HEAD' ? payload : undefined,
-            credentials: 'omit'
-          });
-
-          const rawText = await response.text();
-          console.log('[bridge] raw response status:', response.status, response.statusText);
-          console.log('[bridge] raw response body:', rawText);
-
-          let parsedResponse = null;
-          try {
-            parsedResponse = rawText ? JSON.parse(rawText) : null;
-          } catch (error) {
-            parsedResponse = rawText;
-          }
-
-          if (!response.ok) {
-            const message =
-              (parsedResponse && (parsedResponse.message || parsedResponse.error_description || parsedResponse.error)) ||
-              rawText ||
-              `Request failed with HTTP ${response.status}`;
-            console.error('[bridge] Salesforce API error:', message);
-            throw new Error(message);
-          }
-
-          console.log('[bridge] successful response payload:', parsedResponse);
-
-          const records = parsedResponse && Array.isArray(parsedResponse.records) ? parsedResponse.records : [];
-          if (records.length) {
-            const isUserQuery = /FROM\s+User\b/i.test(String(path || '')) || 
-              /FROM\s+User\b/i.test(String(msg.query || '')) ||
-              /FROM\s+User\b/i.test(String(msg.endpoint || ''));
-
-            if (isUserQuery) {
-              renderUserTable(records);
-            }
-          }
-
-          sendResult(requestId, true, {
-            status: response.status,
-            statusText: response.statusText,
-            body: parsedResponse
-          }, null);
-        } catch (error) {
-          console.error('[bridge] fetch threw error:', error);
-          sendResult(requestId, false, null, error);
-        }
+      columns.forEach((column) => {
+        const th = document.createElement('th');
+        th.textContent = column;
+        headerRow.appendChild(th);
       });
 
-    </script>
-  </body>
+      thead.appendChild(headerRow);
+
+      records.forEach((record) => {
+        const tr = document.createElement('tr');
+
+        columns.forEach((column) => {
+          const td = document.createElement('td');
+          td.textContent = record[column] ?? '';
+          tr.appendChild(td);
+        });
+
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(thead);
+      table.appendChild(tbody);
+
+      result.appendChild(table);
+    }
+
+    // ============================================
+    // GET TOKEN FROM PITCHER VIA POSTMESSAGE
+    // ============================================
+
+    function fetchSalesforceToken() {
+      return new Promise((resolve, reject) => {
+
+        if (window.parent === window) {
+          reject(new Error(
+            'No parent application detected. ' +
+            'Open this page inside Pitcher.'
+          ));
+          return;
+        }
+
+        const requestId = crypto.randomUUID();
+
+        let timeoutId;
+
+        function cleanup() {
+          clearTimeout(timeoutId);
+
+          window.removeEventListener(
+            'message',
+            handleMessage
+          );
+        }
+
+        function handleMessage(event) {
+          if (event.source !== window.parent) {
+            return;
+          }
+
+          if (event.origin !== TRUSTED_PARENT_ORIGIN) {
+            return;
+          }
+
+          const msg = event.data || {};
+
+          if (msg.type !== 'salesforce-token-response') {
+            return;
+          }
+
+          if (msg.id !== requestId) {
+            return;
+          }
+
+          cleanup();
+
+          if (msg.error) {
+            reject(new Error(msg.error));
+            return;
+          }
+
+          if (!msg.token || typeof msg.token !== 'string') {
+            reject(new Error(
+              'Pitcher returned no Salesforce access token.'
+            ));
+            return;
+          }
+
+          resolve(msg.token);
+        }
+
+        window.addEventListener(
+          'message',
+          handleMessage
+        );
+
+        timeoutId = setTimeout(() => {
+          cleanup();
+
+          reject(new Error(
+            'Timeout waiting for Salesforce token from Pitcher.'
+          ));
+        }, TOKEN_TIMEOUT);
+
+        window.parent.postMessage({
+          type: 'salesforce-token-request',
+          id: requestId
+        }, TRUSTED_PARENT_ORIGIN);
+      });
+    }
+
+    // ============================================
+    // FETCH SALESFORCE USERS
+    // ============================================
+
+    async function loadUsers() {
+      setBusy(true);
+
+      status.textContent =
+        'Requesting Salesforce token from Pitcher...';
+
+      result.replaceChildren();
+
+      try {
+        // 1. Get token from Pitcher
+        const token = await fetchSalesforceToken();
+
+        status.textContent =
+          'Token received. Fetching Salesforce users...';
+
+        // 2. Build Salesforce SOQL URL
+        const url = new URL(
+          `/services/data/${API_VERSION}/query`,
+          SF_INSTANCE_URL
+        );
+
+        url.searchParams.set('q', SOQL);
+
+        // 3. Execute Salesforce REST request
+        const response = await fetch(url.toString(), {
+          method: 'GET',
+          mode: 'cors',
+          credentials: 'omit',
+          cache: 'no-store',
+          referrerPolicy: 'no-referrer',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json'
+          }
+        });
+
+        // 4. Parse response
+        const rawBody = await response.text();
+
+        let parsedBody;
+
+        try {
+          parsedBody = JSON.parse(rawBody);
+        } catch (_) {
+          parsedBody = rawBody;
+        }
+
+        // 5. Handle API errors
+        if (!response.ok) {
+          const detail = Array.isArray(parsedBody)
+            ? parsedBody.map(e => e.message).join('; ')
+            : (
+                parsedBody &&
+                typeof parsedBody === 'object' &&
+                parsedBody.message
+              )
+              ? parsedBody.message
+              : rawBody;
+
+          throw new Error(
+            detail ||
+            `Salesforce API failed with HTTP ${response.status}`
+          );
+        }
+
+        // 6. Render records
+        const records =
+          parsedBody &&
+          Array.isArray(parsedBody.records)
+            ? parsedBody.records
+            : [];
+
+        renderUsersTable(records);
+
+        status.textContent =
+          `Loaded ${records.length} Salesforce users successfully.`;
+
+      } catch (error) {
+        console.error('Salesforce request failed:', error);
+
+        showError(error.message);
+
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    // ============================================
+    // EVENTS
+    // ============================================
+
+    runButton.addEventListener('click', loadUsers);
+
+    window.addEventListener('DOMContentLoaded', () => {
+      if (window.parent !== window) {
+        loadUsers();
+      } else {
+        status.textContent =
+          'Open this page inside Pitcher to load Salesforce users.';
+      }
+    });
+
+  </script>
+</body>
 </html>
