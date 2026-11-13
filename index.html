@@ -41,6 +41,7 @@
 
       window.addEventListener('message', async function (event) {
         const msg = event.data || {};
+        console.log('[bridge] received message:', msg);
         if (msg.type !== 'agentforce-request') return;
 
         const requestId = msg.id;
@@ -51,18 +52,33 @@
         const body = parseBody(msg.body);
         const headers = Object.assign({}, msg.headers || {});
 
+        console.log('[bridge] parsed values:', {
+          requestId,
+          method,
+          tokenLength: token ? token.length : 0,
+          instanceUrl,
+          path,
+          body,
+          headers
+        });
+
         if (!token) {
+          console.error('[bridge] missing access token in message');
           sendResult(requestId, false, null, new Error('Missing access token.'));
           return;
         }
 
         if (!instanceUrl) {
+          console.error('[bridge] missing Salesforce instance URL in message');
           sendResult(requestId, false, null, new Error('Missing Salesforce instance URL.'));
           return;
         }
 
         const targetUrl = buildTargetUrl(instanceUrl, path);
+        console.log('[bridge] targetUrl:', targetUrl);
+
         if (!targetUrl) {
+          console.error('[bridge] invalid target URL built from instanceUrl + path');
           sendResult(requestId, false, null, new Error('Invalid Salesforce target URL.'));
           return;
         }
@@ -80,6 +96,13 @@
             payload = JSON.stringify(payload);
           }
 
+          console.log('[bridge] sending request:', {
+            url: targetUrl,
+            method,
+            headers: requestHeaders,
+            payload
+          });
+
           const response = await fetch(targetUrl, {
             method,
             headers: requestHeaders,
@@ -88,6 +111,9 @@
           });
 
           const rawText = await response.text();
+          console.log('[bridge] raw response status:', response.status, response.statusText);
+          console.log('[bridge] raw response body:', rawText);
+
           let parsedResponse = null;
           try {
             parsedResponse = rawText ? JSON.parse(rawText) : null;
@@ -100,15 +126,18 @@
               (parsedResponse && (parsedResponse.message || parsedResponse.error_description || parsedResponse.error)) ||
               rawText ||
               `Request failed with HTTP ${response.status}`;
+            console.error('[bridge] Salesforce API error:', message);
             throw new Error(message);
           }
 
+          console.log('[bridge] successful response payload:', parsedResponse);
           sendResult(requestId, true, {
             status: response.status,
             statusText: response.statusText,
             body: parsedResponse
           }, null);
         } catch (error) {
+          console.error('[bridge] fetch threw error:', error);
           sendResult(requestId, false, null, error);
         }
       });
