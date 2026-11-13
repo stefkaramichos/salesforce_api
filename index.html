@@ -21,15 +21,23 @@ padding: 16px; }
  <input id="token" type="password" autocomplete="off" spellcheck="false"
  placeholder="Paste access_token here">
  <button id="run" type="button">Run Salesforce query</button>
+ <button id="token-request" type="button" style="margin-top: 8px;">Get access token with client_credentials</button>
  <pre id="result">No request sent yet.</pre>
  <script>
  const SF_INSTANCE_URL =
    'https://sz-scout01--crmr18dev.sandbox.my.salesforce.com';
+ const SF_TOKEN_URL =
+   'https://sz-scout01--crmr18dev.sandbox.my.salesforce.com/services/oauth2/token';
  const SOQL =
    'SELECT Id, Name, Username, Email FROM User LIMIT 100';
+ const CLIENT_ID =
+   '3MVG9VwL6uEwP_uTvj6NWrKg3PCiyZFdzyeOfUIfiFf2YzELXZA_OH6KhEBT3XPz.rOjyTGjU_DM7oZAxsHAV';
+ const CLIENT_SECRET =
+   '7CBCF02876DD3453B8A415892BC0F358A60B25D16DD29D36CC634CA9D0E1E535';
 
  const tokenInput = document.getElementById('token');
  const runButton = document.getElementById('run');
+ const tokenRequestButton = document.getElementById('token-request');
  const result = document.getElementById('result');
 
  document.getElementById('origin').textContent =
@@ -40,10 +48,17 @@ padding: 16px; }
      'This page is running from file://. A Salesforce CORS failure is expected.';
  }
 
- runButton.addEventListener('click', async () => {
-   const token = tokenInput.value.trim().replace(/^Bearer\s+/i, '');
+ function setBusy(isBusy, label = 'Run Salesforce query') {
+   runButton.disabled = isBusy;
+   runButton.textContent = isBusy ? 'Running...' : label;
+   tokenRequestButton.disabled = isBusy;
+   tokenRequestButton.textContent = isBusy ? 'Requesting token...' : 'Get access token with client_credentials';
+ }
 
-   if (!token) {
+ async function runQueryWithToken(token) {
+   const cleanToken = token.trim().replace(/^Bearer\s+/i, '');
+
+   if (!cleanToken) {
      result.textContent = 'Paste the access token first.';
      return;
    }
@@ -51,7 +66,7 @@ padding: 16px; }
    const url = new URL('/services/data/v65.0/query', SF_INSTANCE_URL);
    url.searchParams.set('q', SOQL);
 
-   runButton.disabled = true;
+   setBusy(true);
    result.textContent = `Calling ${url.origin}${url.pathname} ...`;
 
    try {
@@ -62,7 +77,7 @@ padding: 16px; }
        cache: 'no-store',
        referrerPolicy: 'no-referrer',
        headers: {
-         Authorization: `Bearer ${token}`,
+         Authorization: `Bearer ${cleanToken}`,
          Accept: 'application/json'
        }
      });
@@ -86,7 +101,85 @@ padding: 16px; }
        `Fetch failed: ${error.message}\n\n` +
        'Check the Salesforce token, instance URL, and browser CORS/Network errors.';
    } finally {
-     runButton.disabled = false;
+     setBusy(false);
+   }
+ }
+
+ async function fetchTokenViaClientCredentials() {
+   const body = new URLSearchParams({
+     grant_type: 'client_credentials',
+     client_id: CLIENT_ID,
+     client_secret: CLIENT_SECRET
+   });
+
+   setBusy(true, 'Requesting token...');
+   result.textContent = 'Requesting Salesforce access token via client_credentials...';
+
+   try {
+     const response = await fetch(SF_TOKEN_URL, {
+       method: 'POST',
+       mode: 'cors',
+       credentials: 'omit',
+       cache: 'no-store',
+       referrerPolicy: 'no-referrer',
+       headers: {
+         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+         Accept: 'application/json'
+       },
+       body: body.toString()
+     });
+
+     const rawBody = await response.text();
+     let parsedBody = null;
+
+     try {
+       parsedBody = JSON.parse(rawBody);
+     } catch (_) {
+       parsedBody = rawBody;
+     }
+
+     if (!response.ok) {
+       const detail = typeof parsedBody === 'object' && parsedBody && parsedBody.error
+         ? `${parsedBody.error}: ${parsedBody.error_description || ''}`
+         : rawBody;
+       throw new Error(detail || `Token request failed with HTTP ${response.status}`);
+     }
+
+     const token = parsedBody && parsedBody.access_token
+       ? parsedBody.access_token
+       : null;
+
+     if (!token) {
+       throw new Error('No access_token returned by Salesforce token endpoint.');
+     }
+
+     tokenInput.value = token;
+     result.textContent = 'Salesforce token received. Running query automatically...';
+     await runQueryWithToken(token);
+   } catch (error) {
+     result.textContent = `Token request failed: ${error.message}`;
+   } finally {
+     setBusy(false);
+   }
+ }
+
+ runButton.addEventListener('click', async () => {
+   await runQueryWithToken(tokenInput.value);
+ });
+
+ tokenRequestButton.addEventListener('click', async () => {
+   await fetchTokenViaClientCredentials();
+ });
+
+ tokenInput.addEventListener('input', async () => {
+   if (tokenInput.value.trim()) {
+     await runQueryWithToken(tokenInput.value);
+   }
+ });
+
+ tokenInput.addEventListener('keydown', async (event) => {
+   if (event.key === 'Enter' && tokenInput.value.trim()) {
+     await runQueryWithToken(tokenInput.value);
    }
  });
  </script>
