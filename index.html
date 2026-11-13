@@ -112,16 +112,15 @@
  <button id="run" type="button">Refresh Salesforce users</button>
  <div id="result"></div>
  <script>
- const SF_INSTANCE_URL =
-   'https://sz-scout01--crmr18dev.sandbox.my.salesforce.com';
- const SF_TOKEN_URL =
-   'https://sz-scout01--crmr18dev.sandbox.my.salesforce.com/services/oauth2/token';
+ // Keep Salesforce secrets out of source control. Inject these values at runtime
+ // from a secure backend or deployment config, never by hardcoding them here.
+ const SF_CONFIG = window.__SF_CONFIG__ || {};
+ const SF_INSTANCE_URL = SF_CONFIG.instanceUrl || '';
+ const SF_TOKEN_URL = SF_CONFIG.tokenUrl || '/api/salesforce/token';
  const SOQL =
    'SELECT Id, Name, Username, Email FROM User LIMIT 100';
- const CLIENT_ID =
-   '3MVG9VwL6uEwP_uTvj6NWrKg3PCiyZFdzyeOfUIfiFf2YzELXZA_OH6KhEBT3XPz.rOjyTGjU_DM7oZAxsHAV';
- const CLIENT_SECRET =
-   '7CBCF02876DD3453B8A415892BC0F358A60B25D16DD29D36CC634CA9D0E1E535';
+ const CLIENT_ID = SF_CONFIG.clientId || null;
+ const CLIENT_SECRET = SF_CONFIG.clientSecret || null;
 
  const runButton = document.getElementById('run');
  const status = document.getElementById('status');
@@ -176,13 +175,54 @@
  }
 
  async function fetchSalesforceToken() {
+   // Preferred pattern: ask a backend endpoint to exchange the credentials securely.
+   // The browser should never have the Salesforce client secret.
+   if (SF_TOKEN_URL && SF_TOKEN_URL !== '' && !SF_TOKEN_URL.includes('salesforce.com/services/oauth2/token')) {
+     const response = await fetch(SF_TOKEN_URL, {
+       method: 'POST',
+       credentials: 'same-origin',
+       cache: 'no-store',
+       headers: {
+         Accept: 'application/json',
+         'Content-Type': 'application/json'
+       }
+     });
+
+     const rawBody = await response.text();
+     let parsedBody = null;
+
+     try {
+       parsedBody = JSON.parse(rawBody);
+     } catch (_) {
+       parsedBody = rawBody;
+     }
+
+     if (!response.ok) {
+       const detail = typeof parsedBody === 'object' && parsedBody && parsedBody.error
+         ? `${parsedBody.error}: ${parsedBody.error_description || ''}`
+         : rawBody;
+       throw new Error(detail || `Token request failed with HTTP ${response.status}`);
+     }
+
+     const token = parsedBody && parsedBody.access_token ? parsedBody.access_token : null;
+     if (!token) {
+       throw new Error('No access_token returned by the token endpoint.');
+     }
+
+     return token;
+   }
+
+   if (!CLIENT_ID || !CLIENT_SECRET || !SF_INSTANCE_URL) {
+     throw new Error('Missing secure Salesforce config. Set window.__SF_CONFIG__ or provide a backend token endpoint.');
+   }
+
    const body = new URLSearchParams({
      grant_type: 'client_credentials',
      client_id: CLIENT_ID,
      client_secret: CLIENT_SECRET
    });
 
-   const response = await fetch(SF_TOKEN_URL, {
+   const response = await fetch(`${SF_INSTANCE_URL}/services/oauth2/token`, {
      method: 'POST',
      mode: 'cors',
      credentials: 'omit',
