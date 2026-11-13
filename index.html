@@ -318,8 +318,7 @@
         window.parent.postMessage({
           type: 'salesforce-token-request',
           id: requestId
-        }, TRUSTED_PARENT_ORIGIN);
-      });
+        }, '*');
     }
 
     // ============================================
