@@ -1,433 +1,277 @@
-
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Salesforce REST POC</title>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1">
+ <title>Salesforce REST POC</title>
+ <style>
+   :root {
+     --app-navy: #29335c;
+     --app-navy-soft: #4a587e;
+     --app-surface: #f5f7fb;
+     --app-panel: #ffffff;
+     --app-border: #dfe3ef;
+     --app-shadow: rgba(41, 51, 92, 0.08);
+     --app-muted: #5f6d8d;
+   }
 
-  <style>
-    :root {
-      --app-navy: #29335c;
-      --app-navy-soft: #4a587e;
-      --app-surface: #f5f7fb;
-      --app-panel: #ffffff;
-      --app-border: #dfe3ef;
-      --app-shadow: rgba(41, 51, 92, 0.08);
-      --app-muted: #5f6d8d;
-    }
+   body {
+     margin: 24px;
+     font: 16px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+     background: var(--app-surface);
+     color: var(--app-navy);
+   }
 
-    body {
-      margin: 24px;
-      font: 16px system-ui, -apple-system, BlinkMacSystemFont,
-        'Segoe UI', sans-serif;
-      background: var(--app-surface);
-      color: var(--app-navy);
-    }
+  h1 {
+    margin: 0 0 12px;
+    color: var(--app-navy);
+    font-size: 2rem;
+  }
 
-    h1 {
-      margin: 0 0 12px;
-      color: var(--app-navy);
-      font-size: 2rem;
-    }
+  p {
+    color: var(--app-muted);
+    margin: 8px 0;
+  }
 
-    p {
-      color: var(--app-muted);
-      margin: 8px 0;
-    }
+  button {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px;
+    background: var(--app-navy);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 6px 16px var(--app-shadow);
+    transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  }
 
-    button {
-      padding: 10px 18px;
-      border: none;
-      border-radius: 8px;
-      background: var(--app-navy);
-      color: #fff;
-      font-weight: 600;
-      cursor: pointer;
-      box-shadow: 0 6px 16px var(--app-shadow);
-      transition: background 0.2s ease,
-        transform 0.2s ease,
-        box-shadow 0.2s ease;
-    }
+  button:hover:not(:disabled) {
+    background: var(--app-navy-soft);
+    transform: translateY(-1px);
+  }
 
-    button:hover:not(:disabled) {
-      background: var(--app-navy-soft);
-      transform: translateY(-1px);
-    }
+  button:disabled {
+    opacity: 0.7;
+    cursor: wait;
+    box-shadow: none;
+  }
 
-    button:disabled {
-      opacity: 0.7;
-      cursor: wait;
-      box-shadow: none;
-    }
+  pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: #edf1f8;
+    border: 1px solid var(--app-border);
+    border-radius: 10px;
+    color: var(--app-navy);
+    padding: 16px;
+    margin-top: 16px;
+  }
 
-    pre {
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      background: #edf1f8;
-      border: 1px solid var(--app-border);
-      border-radius: 10px;
-      color: var(--app-navy);
-      padding: 16px;
-      margin-top: 16px;
-    }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    max-width: 1200px;
+    margin-top: 16px;
+    background: var(--app-panel);
+    border: 1px solid var(--app-border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px var(--app-shadow);
+  }
 
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      max-width: 1200px;
-      margin-top: 16px;
-      background: var(--app-panel);
-      border: 1px solid var(--app-border);
-      box-shadow: 0 8px 24px var(--app-shadow);
-    }
+  th, td {
+    border: 1px solid var(--app-border);
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
 
-    th, td {
-      border: 1px solid var(--app-border);
-      padding: 10px 12px;
-      text-align: left;
-      vertical-align: top;
-    }
+  th {
+    background: #edf2ff;
+    color: var(--app-navy);
+    font-weight: 700;
+  }
 
-    th {
-      background: #edf2ff;
-      color: var(--app-navy);
-      font-weight: 700;
-    }
+  td {
+    background: #fff;
+    color: var(--app-navy);
+  }
 
-    td {
-      background: #fff;
-      color: var(--app-navy);
-    }
-
-    .status {
-      margin: 12px 0 16px;
-      font-weight: 600;
-      color: var(--app-navy);
-    }
-  </style>
+  .status {
+    margin: 12px 0 16px;
+    font-weight: 600;
+    color: var(--app-navy);
+  }
+ </style>
 </head>
-
 <body>
-
-  <h1>Salesforce REST POC</h1>
-
-  <p id="origin"></p>
-  <p id="note"></p>
-
-  <div class="status" id="status">
-    Waiting for Salesforce connection...
-  </div>
-
-  <button id="run" type="button">
-    Refresh Salesforce users
-  </button>
-
-  <div id="result"></div>
-
-  <script>
-    // ============================================
-    // CONFIGURATION
-    // ============================================
-
-    const SF_INSTANCE_URL =
-      'https://sz-scout01--crmr18dev.sandbox.my.salesforce.com';
-
-    // Must be the actual origin of the trusted parent.
-    const TRUSTED_PARENT_ORIGIN =
-      'https://stefkaramichos.github.io/salesforce_api';
-
-    const SOQL =
-      'SELECT Id, Name, Username, Email FROM User LIMIT 100';
-
-    const API_VERSION = 'v65.0';
-
-    const TOKEN_TIMEOUT = 15000;
-
-    // ============================================
-    // ELEMENTS
-    // ============================================
-
-    const runButton = document.getElementById('run');
-    const status = document.getElementById('status');
-    const result = document.getElementById('result');
-
-    document.getElementById('origin').textContent =
-      `Page origin: ${window.location.origin}`;
-
-    // ============================================
-    // PAGE ENVIRONMENT
-    // ============================================
-
-    if (window.parent === window) {
-      document.getElementById('note').textContent =
-        'This page is not embedded in Pitcher. ' +
-        'A parent application is required to provide the token.';
-    } else {
-      document.getElementById('note').textContent =
-        'Page embedded. Waiting for Pitcher authentication.';
-    }
-
-    // ============================================
-    // UI HELPERS
-    // ============================================
-
-    function setBusy(isBusy) {
-      runButton.disabled = isBusy;
-
-      runButton.textContent = isBusy
-        ? 'Loading...'
-        : 'Refresh Salesforce users';
-    }
-
-    function showError(message) {
-      status.textContent = `Error: ${message}`;
-
-      result.replaceChildren();
-
-      const pre = document.createElement('pre');
-      pre.textContent = message;
-      result.appendChild(pre);
-    }
-
-    // ============================================
-    // RENDER USERS TABLE
-    // ============================================
-
-    function renderUsersTable(records) {
-      result.replaceChildren();
-
-      if (!Array.isArray(records) || records.length === 0) {
-        const p = document.createElement('p');
-        p.textContent = 'No users returned.';
-        result.appendChild(p);
-        return;
-      }
-
-      const columns = ['Id', 'Name', 'Username', 'Email'];
-
-      const table = document.createElement('table');
-      const thead = document.createElement('thead');
-      const tbody = document.createElement('tbody');
-
-      const headerRow = document.createElement('tr');
-
-      columns.forEach((column) => {
-        const th = document.createElement('th');
-        th.textContent = column;
-        headerRow.appendChild(th);
-      });
-
-      thead.appendChild(headerRow);
-
-      records.forEach((record) => {
-        const tr = document.createElement('tr');
-
-        columns.forEach((column) => {
-          const td = document.createElement('td');
-          td.textContent = record[column] ?? '';
-          tr.appendChild(td);
-        });
-
-        tbody.appendChild(tr);
-      });
-
-      table.appendChild(thead);
-      table.appendChild(tbody);
-
-      result.appendChild(table);
-    }
-
-    // ============================================
-    // GET TOKEN FROM PITCHER VIA POSTMESSAGE
-    // ============================================
-
-    function fetchSalesforceToken() {
-      return new Promise((resolve, reject) => {
-
-        if (window.parent === window) {
-          reject(new Error(
-            'No parent application detected. ' +
-            'Open this page inside Pitcher.'
-          ));
-          return;
-        }
-
-        const requestId = crypto.randomUUID();
-
-        let timeoutId;
-
-        function cleanup() {
-          clearTimeout(timeoutId);
-
-          window.removeEventListener(
-            'message',
-            handleMessage
-          );
-        }
-
-        function handleMessage(event) {
-          if (event.source !== window.parent) {
-            return;
-          }
-
-          if (event.origin !== TRUSTED_PARENT_ORIGIN) {
-            return;
-          }
-
-          const msg = event.data || {};
-
-          if (msg.type !== 'salesforce-token-response') {
-            return;
-          }
-
-          if (msg.id !== requestId) {
-            return;
-          }
-
-          cleanup();
-
-          if (msg.error) {
-            reject(new Error(msg.error));
-            return;
-          }
-
-          if (!msg.token || typeof msg.token !== 'string') {
-            reject(new Error(
-              'Pitcher returned no Salesforce access token.'
-            ));
-            return;
-          }
-
-          resolve(msg.token);
-        }
-
-        window.addEventListener(
-          'message',
-          handleMessage
-        );
-
-        timeoutId = setTimeout(() => {
-          cleanup();
-
-          reject(new Error(
-            'Timeout waiting for Salesforce token from Pitcher.'
-          ));
-        }, TOKEN_TIMEOUT);
-
-        window.parent.postMessage({
-          type: 'salesforce-token-request',
-          id: requestId
-        }, '*');
-      });
-    }
-
-    // ============================================
-    // FETCH SALESFORCE USERS
-    // ============================================
-
-    async function loadUsers() {
-      setBusy(true);
-
-      status.textContent =
-        'Requesting Salesforce token from Pitcher...';
-
-      result.replaceChildren();
-
-      try {
-        // 1. Get token from Pitcher
-        const token = await fetchSalesforceToken();
-
-        status.textContent =
-          'Token received. Fetching Salesforce users...';
-
-        // 2. Build Salesforce SOQL URL
-        const url = new URL(
-          `/services/data/${API_VERSION}/query`,
-          SF_INSTANCE_URL
-        );
-
-        url.searchParams.set('q', SOQL);
-
-        // 3. Execute Salesforce REST request
-        const response = await fetch(url.toString(), {
-          method: 'GET',
-          mode: 'cors',
-          credentials: 'omit',
-          cache: 'no-store',
-          referrerPolicy: 'no-referrer',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/json'
-          }
-        });
-
-        // 4. Parse response
-        const rawBody = await response.text();
-
-        let parsedBody;
-
-        try {
-          parsedBody = JSON.parse(rawBody);
-        } catch (_) {
-          parsedBody = rawBody;
-        }
-
-        // 5. Handle API errors
-        if (!response.ok) {
-          const detail = Array.isArray(parsedBody)
-            ? parsedBody.map(e => e.message).join('; ')
-            : (
-                parsedBody &&
-                typeof parsedBody === 'object' &&
-                parsedBody.message
-              )
-              ? parsedBody.message
-              : rawBody;
-
-          throw new Error(
-            detail ||
-            `Salesforce API failed with HTTP ${response.status}`
-          );
-        }
-
-        // 6. Render records
-        const records =
-          parsedBody &&
-          Array.isArray(parsedBody.records)
-            ? parsedBody.records
-            : [];
-
-        renderUsersTable(records);
-
-        status.textContent =
-          `Loaded ${records.length} Salesforce users successfully.`;
-
-      } catch (error) {
-        console.error('Salesforce request failed:', error);
-
-        showError(error.message);
-
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    // ============================================
-    // EVENTS
-    // ============================================
-
-    runButton.addEventListener('click', loadUsers);
-
-    window.addEventListener('DOMContentLoaded', () => {
-      if (window.parent !== window) {
-        loadUsers();
-      } else {
-        status.textContent =
-          'Open this page inside Pitcher to load Salesforce users.';
-      }
-    });
-
-  </script>
+ <h1>Salesforce REST POC</h1>
+ <p id="origin"></p>
+ <p id="note"></p>
+ <div class="status" id="status">Loading Salesforce user data...</div>
+ <button id="run" type="button">Refresh Salesforce users</button>
+ <div id="result"></div>
+ <script>
+ const SF_INSTANCE_URL =
+   'https://sz-scout01--crmr18dev.sandbox.my.salesforce.com';
+ const SF_TOKEN_URL =
+   'https://sz-scout01--crmr18dev.sandbox.my.salesforce.com/services/oauth2/token';
+ const SOQL =
+   'SELECT Id, Name, Username, Email FROM User LIMIT 100';
+ const CLIENT_ID =
+   '3MVG9VwL6uEwP_uTvj6NWrKg3PCiyZFdzyeOfUIfiFf2YzELXZA_OH6KhEBT3XPz.rOjyTGjU_DM7oZAxsHAV';
+ const CLIENT_SECRET =
+   '7CBCF02876DD3453B8A415892BC0F358A60B25D16DD29D36CC634CA9D0E1E535';
+
+ const runButton = document.getElementById('run');
+ const status = document.getElementById('status');
+ const result = document.getElementById('result');
+
+ document.getElementById('origin').textContent =
+   `Page origin: ${window.location.origin}`;
+
+ if (window.location.protocol === 'file:') {
+   document.getElementById('note').textContent =
+     'This page is running from file://. A Salesforce CORS failure is expected.';
+ }
+
+ function setBusy(isBusy) {
+   runButton.disabled = isBusy;
+   runButton.textContent = isBusy ? 'Loading...' : 'Refresh Salesforce users';
+ }
+
+ function renderUsersTable(records) {
+   if (!Array.isArray(records) || records.length === 0) {
+     result.innerHTML = '<p>No users returned.</p>';
+     return;
+   }
+
+   const columns = ['Id', 'Name', 'Username', 'Email'];
+
+   const rowsHtml = records
+     .map((record) => {
+       return `
+         <tr>
+           <td>${record.Id || ''}</td>
+           <td>${record.Name || ''}</td>
+           <td>${record.Username || ''}</td>
+           <td>${record.Email || ''}</td>
+         </tr>
+       `;
+     })
+     .join('');
+
+   result.innerHTML = `
+     <table>
+       <thead>
+         <tr>
+           ${columns.map((column) => `<th>${column}</th>`).join('')}
+         </tr>
+       </thead>
+       <tbody>
+         ${rowsHtml}
+       </tbody>
+     </table>
+   `;
+ }
+
+ async function fetchSalesforceToken() {
+   const body = new URLSearchParams({
+     grant_type: 'client_credentials',
+     client_id: CLIENT_ID,
+     client_secret: CLIENT_SECRET
+   });
+
+   const response = await fetch(SF_TOKEN_URL, {
+     method: 'POST',
+     mode: 'cors',
+     credentials: 'omit',
+     cache: 'no-store',
+     referrerPolicy: 'no-referrer',
+     headers: {
+       'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+       Accept: 'application/json'
+     },
+     body: body.toString()
+   });
+
+   const rawBody = await response.text();
+   let parsedBody = null;
+
+   try {
+     parsedBody = JSON.parse(rawBody);
+   } catch (_) {
+     parsedBody = rawBody;
+   }
+
+   if (!response.ok) {
+     const detail = typeof parsedBody === 'object' && parsedBody && parsedBody.error
+       ? `${parsedBody.error}: ${parsedBody.error_description || ''}`
+       : rawBody;
+     throw new Error(detail || `Token request failed with HTTP ${response.status}`);
+   }
+
+   const token = parsedBody && parsedBody.access_token ? parsedBody.access_token : null;
+   if (!token) {
+     throw new Error('No access_token returned by Salesforce token endpoint.');
+   }
+
+   return token;
+ }
+
+ async function loadUsers() {
+   setBusy(true);
+   status.textContent = 'Requesting access token from Salesforce...';
+   result.innerHTML = '';
+
+   try {
+     const token = await fetchSalesforceToken();
+     status.textContent = 'Token received. Fetching User records...';
+
+     const url = new URL('/services/data/v65.0/query', SF_INSTANCE_URL);
+     url.searchParams.set('q', SOQL);
+
+     const response = await fetch(url.toString(), {
+       method: 'GET',
+       mode: 'cors',
+       credentials: 'omit',
+       cache: 'no-store',
+       referrerPolicy: 'no-referrer',
+       headers: {
+         Authorization: `Bearer ${token}`,
+         Accept: 'application/json'
+       }
+     });
+
+     const rawBody = await response.text();
+     let parsedBody = null;
+
+     try {
+       parsedBody = JSON.parse(rawBody);
+     } catch (_) {
+       parsedBody = rawBody;
+     }
+
+     if (!response.ok) {
+       const detail = typeof parsedBody === 'object' && parsedBody && parsedBody.message
+         ? parsedBody.message
+         : rawBody;
+       throw new Error(detail || `Query failed with HTTP ${response.status}`);
+     }
+
+     const records = parsedBody && Array.isArray(parsedBody.records) ? parsedBody.records : [];
+     renderUsersTable(records);
+     status.textContent = `Loaded ${records.length} User records successfully.`;
+   } catch (error) {
+     status.textContent = `Error: ${error.message}`;
+     result.innerHTML = `<pre>${error.message}</pre>`;
+   } finally {
+     setBusy(false);
+   }
+ }
+
+ runButton.addEventListener('click', loadUsers);
+ window.addEventListener('DOMContentLoaded', loadUsers);
+ </script>
 </body>
 </html>
